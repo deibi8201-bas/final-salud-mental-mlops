@@ -1,0 +1,85 @@
+name: CI/CD ML Pipeline
+
+on:
+  push:
+    branches:
+      - dev
+      - prod
+
+env:
+  AWS_REGION: us-east-1                  # Cambia esto por tu región de AWS si es diferente
+  BUCKET_NAME: mi-proyecto-salud-mental-mlops
+  AWS_ROLE_ARN: arn:aws:iam::522412052494:role/GitHubActionsWorkflowRole
+jobs:
+  extract-env:
+    runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.set-env.outputs.env_name }}
+    steps:
+      - id: set-env
+        run: |
+          if [ "${{ github.ref_name }}" = "prod" ]; then
+            echo "env_name=prod" >> $GITHUB_OUTPUT
+          else
+            echo "env_name=dev" >> $GITHUB_OUTPUT
+          fi
+
+  test:
+    needs: extract-env
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Test Dependencies
+        run: |
+          pip install pytest onnxruntime numpy pandas boto3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # REQUERIMIENTO: Descargar el modelo y los datos desde S3 en las etapas de CI/CD
+      - name: Download Model and Test Data from S3 Bucket
+        run: |
+          aws s3 cp s3://${{ env.BUCKET_NAME }}/modelos/${{ needs.extract-env.outputs.env_name }}/mental_health_model.onnx mental_health_model.onnx
+          aws s3 cp s3://${{ env.BUCKET_NAME }}/datos/test_data.csv test_data.csv
+
+      # REQUERIMIENTO: Ejecución de las pruebas unitarias especificadas
+      - name: Run Unit Tests
+        run: |
+          pytest tests/test_model.py -v
+
+  build-promote:
+    needs: [extract-env, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      # REQUERIMIENTO: Construir el contenedor Docker y enviarlo a la solución final (Amazon ECR)
+      - name: Build, Tag, and Push Image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: salud-mental-${{ needs.extract-env.outputs.env_name }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY --all-tags

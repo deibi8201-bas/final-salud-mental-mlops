@@ -1,76 +1,53 @@
 import os
-import pytest
+import json
 import numpy as np
 import pandas as pd
 import onnxruntime as ort
-from sklearn.metrics import accuracy_score
 
-MODEL_FILE = "src/mental_health_model.onnx"
-DATA_FILE = "test_data.csv"
+LOCAL_MODEL_PATH = "mental_health_model.onnx"
+LOCAL_DATA_PATH = "test_data.csv"
 
-@pytest.fixture(scope="module")
-def onnx_session():
-    """Fixture que levanta la sesión del modelo ONNX una sola vez para los tests."""
-    # Verificar que el modelo exista antes de iniciar las pruebas
-    assert os.path.exists(MODEL_FILE), f"No se encontró el archivo {MODEL_FILE} para la prueba."
-    return ort.InferenceSession("src/mental_health_model.onnx")
+with open("model_features.json", "r") as f:
+    FEATURE_ORDER = json.load(f)
 
-def test_model_dimensions_and_responsiveness(onnx_session):
-    """
-    PRUEBA 1: Verificar la consistencia de las dimensiones de entrada y
-    que el modelo genere respuestas válidas (Multi-label array de tamaño 5).
-    """
-    input_meta = onnx_session.get_inputs()[0]
-    input_name = input_meta.name
-    
-    # Simular una entrada dummy válida de 1 fila por 20 columnas (Float32)
-    dummy_input = np.ones((1, 20), dtype=np.float32)
-    
-    # Ejecutar inferencia básica
-    outputs = onnx_session.run(None, {input_name: dummy_input})
-    
-    # Validaciones rigurosas
-    assert len(outputs) > 0, "El modelo no retornó ninguna salida."
-    
-    shape_salida = outputs[0].shape
-    assert shape_salida == (1, 5), f"Se esperaba una salida de forma (1, 5), pero se obtuvo {shape_salida}"
-    print(f"\n[TEST] Validación de dimensiones exitosa. Forma obtenida: {shape_salida}")
+CONDITIONS = ['Depression', 'Anxiety', 'Bipolar', 'ADHD', 'SubstanceRelated']
 
-def test_model_performance_metric(onnx_session):
-    """
-    PRUEBA 2: Evaluar la métrica de rendimiento (Accuracy) usando los datos
-    de prueba sintéticos para garantizar que el modelo mantiene su precisión.
-    """
-    # Verificar si el archivo de datos de prueba está presente
-    assert os.path.exists(DATA_FILE), f"Falta el archivo {DATA_FILE} requerido para evaluar la métrica."
+def test_model_response():
+    """Prueba 1: Validar que el modelo responde con datos de entrada definidos."""
+    assert os.path.exists(LOCAL_MODEL_PATH), "El archivo del modelo ONNX no está disponible para la prueba."
     
-    # Cargar el dataset de prueba tabular
-    df = pd.read_csv(DATA_FILE)
+    session = ort.InferenceSession(LOCAL_MODEL_PATH)
+    input_name = session.get_inputs()[0].name
     
-    # Separar las primeras 20 columnas (características) y las últimas 5 (condiciones reales)
-    # De acuerdo al script de entrenamiento: X son 20 columnas, y son las últimas 5 correspondientes a CONDITIONS
-    X_test = df.iloc[:, :20].values.astype(np.float32)
-    y_true = df.iloc[:, 20:25].values.astype(np.int64)
+    # Crear una entrada simulada con ceros
+    dummy_input = np.zeros((1, len(FEATURE_ORDER)), dtype=np.float32)
+    raw_preds = session.run(None, {input_name: dummy_input})
     
-    input_name = onnx_session.get_inputs()[0].name
-    predictions = []
+    assert len(raw_preds) == len(CONDITIONS), "El número de salidas del modelo no coincide con las condiciones esperadas."
+
+def test_model_performance_drift():
+    """Prueba 2: Probar que la métrica no es menor a un valor límite establecido (75%)."""
+    assert os.path.exists(LOCAL_DATA_PATH), "El archivo de datos de prueba no fue descargado por el pipeline."
     
-    # Ejecutar inferencia en bloque para cada fila del set de pruebas
-    for row in X_test:
-        out = onnx_session.run(None, {input_name: np.array([row])})
-        # Guardar el vector binario [0, 1, 0, 0, 0] arrojado por el clasificador
-        predictions.append(out[0][0])
+    session = ort.InferenceSession(LOCAL_MODEL_PATH)
+    input_name = session.get_inputs()[0].name
+    
+    df_test = pd.read_csv(LOCAL_DATA_PATH)
+    X_test = df_test[FEATURE_ORDER].values.astype(np.float32)
+    y_test = df_test[CONDITIONS].values
+    
+    correct_predictions = 0
+    for i in range(len(X_test)):
+        row = np.array([X_test[i]], dtype=np.float32)
+        raw_preds = session.run(None, {input_name: row})
+        y_pred_row = [int(raw_preds[idx][0]) for idx in range(len(CONDITIONS))]
         
-    y_pred = np.array(predictions, dtype=np.int64)
+        if np.array_equal(y_pred_row, y_test[i]):
+            correct_predictions += 1
+            
+    accuracy = correct_predictions / len(X_test)
+    print(f"Subset Accuracy del modelo actual: {accuracy:.4f}")
     
-    # Calcular el Subset Accuracy (Exact Match Ratio obligatorio en MultiOutput)
-    exact_match_acc = accuracy_score(y_true, y_pred)
-    
-    # Definir el umbral mínimo exigido por el negocio/taller (75%)
-    UMBRAL_MINIMO = 0.75
-    
-    print(f"\n[TEST] Subset Accuracy obtenido en el set de pruebas: {exact_match_acc:.2%}")
-    assert exact_match_acc >= UMBRAL_MINIMO, (
-        f"Alerta de degradación de modelo: Precisión de {exact_match_acc:.4f} "
-        f"por debajo del umbral mínimo permitido ({UMBRAL_MINIMO})"
-    )
+    # Umbral límite obligatorio (75%)
+    THRESHOLD = 0.75
+    assert accuracy >= THRESHOLD, f"La precisión del modelo ({accuracy}) está por debajo del límite permitido ({THRESHOLD})."
