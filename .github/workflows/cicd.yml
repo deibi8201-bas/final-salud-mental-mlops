@@ -10,6 +10,19 @@ env:
   AWS_REGION: us-east-1                  # Cambia esto por tu región de AWS si es diferente
   BUCKET_NAME: mi-proyecto-salud-mental-mlops
   AWS_ROLE_ARN: arn:aws:iam::522412052494:role/GitHubActionsWorkflowRole
+
+env:
+  AWS_REGION: us-east-1                  
+  BUCKET_NAME: mi-proyecto-salud-mental-mlops
+  AWS_ROLE_ARN: arn:aws:iam::522412052494:role/GitHubActionsWorkflowRole
+
+# ==========================================
+# ¡AÑADE ESTAS TRES LÍNEAS AQUÍ! (OBLIGATORIO PARA OIDC)
+# ==========================================
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   extract-env:
     runs-on: ubuntu-latest
