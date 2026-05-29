@@ -7,11 +7,11 @@ on:
       - prod
 
 env:
-  AWS_REGION: us-east-2                 # Tu región verificada
+  AWS_REGION: us-east-2                  # <--- ¡CAMBIA ESTO A US-EAST-2!
   BUCKET_NAME: mi-proyecto-salud-mental-mlops
   AWS_ROLE_ARN: arn:aws:iam::522412052494:role/GitHubActionsWorkflowRole
 
-# REQUERIMIENTO CRÍTICO DE GITHUB PARA OIDC:
+ # REQUERIMIENTO CRÍTICO DE GITHUB PARA OIDC:
 permissions:
   id-token: write
   contents: read
