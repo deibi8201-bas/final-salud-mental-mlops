@@ -52,7 +52,7 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # REQUERIMIENTO: Descargar el modelo y los datos desde S3 en las etapas de CI/CD
+     # REQUERIMIENTO: Descargar el modelo y los datos desde S3 en las etapas de CI/CD
       - name: Download Model and Test Data from S3 Bucket
         run: |
           aws s3 cp s3://${{ env.BUCKET_NAME }}/modelos/${{ needs.extract-env.outputs.env_name }}/mental_health_model.onnx mental_health_model.onnx
@@ -62,7 +62,7 @@ jobs:
       - name: Run Unit Tests
         run: |
           pytest tests/test_model.py -v
-
+          
   build-promote:
     needs: [extract-env, test]
     runs-on: ubuntu-latest
