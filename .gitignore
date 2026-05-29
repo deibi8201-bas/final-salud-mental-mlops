@@ -11,8 +11,6 @@ __pycache__/
 # Archivos de Datos y Modelos (Vivirán en Google Cloud Storage)
 *.onnx
 *.csv
-*.json
 *.pyc
 
 # Llaves secretas locales si las hubiere
-*.json
