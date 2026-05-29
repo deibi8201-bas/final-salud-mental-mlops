@@ -64,18 +64,16 @@ jobs:
           pytest tests/test_model.py -v
 
   build-promote:
-    name: Build, Tag, and Push Image to Amazon ECR
-    needs: [extract-env, unit-tests] # Revisa que dependa de tus jobs anteriores
+    needs: [extract-env, test]
     runs-on: ubuntu-latest
-    
-    # ¡ESTO ES LO QUE FALTA! Permite que este Job use el token OIDC para asumir el rol en AWS
+
     permissions:
       id-token: write
       contents: read
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -86,3 +84,13 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
+
+      # REQUERIMIENTO: Construir el contenedor Docker y enviarlo a la solución final (Amazon ECR)
+      - name: Build, Tag, and Push Image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: salud-mental-${{ needs.extract-env.outputs.env_name }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY --all-tags
