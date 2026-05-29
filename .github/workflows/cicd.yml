@@ -7,18 +7,11 @@ on:
       - prod
 
 env:
-  AWS_REGION: us-east-1                  # Cambia esto por tu región de AWS si es diferente
+  AWS_REGION: us-east-1                  # Tu región verificada
   BUCKET_NAME: mi-proyecto-salud-mental-mlops
   AWS_ROLE_ARN: arn:aws:iam::522412052494:role/GitHubActionsWorkflowRole
 
-env:
-  AWS_REGION: us-east-1                  
-  BUCKET_NAME: mi-proyecto-salud-mental-mlops
-  AWS_ROLE_ARN: arn:aws:iam::522412052494:role/GitHubActionsWorkflowRole
-
-# ==========================================
-# ¡AÑADE ESTAS TRES LÍNEAS AQUÍ! (OBLIGATORIO PARA OIDC)
-# ==========================================
+# REQUERIMIENTO CRÍTICO DE GITHUB PARA OIDC:
 permissions:
   id-token: write
   contents: read
