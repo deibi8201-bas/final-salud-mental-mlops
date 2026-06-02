@@ -4,7 +4,7 @@ from datetime import datetime
 import numpy as np
 import onnxruntime as ort
 import boto3
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 # Inicialización de la API FastAPI
@@ -113,7 +113,7 @@ def log_prediction_to_s3(input_data, predictions):
         # Concatena la nueva línea al historial existente
         new_content = existing_content + log_line
         
-        # Sube el archivo modificado de vuelta a S3 de forma síncrona
+        # Sube el archivo modificado de vuelta a S3
         s3_client.put_object(Bucket=BUCKET_NAME, Key=LOG_KEY, Body=new_content.encode('utf-8'))
     except Exception as e:
         # Registramos el error en los logs del contenedor para no interrumpir la respuesta al usuario final
@@ -122,10 +122,10 @@ def log_prediction_to_s3(input_data, predictions):
 
 # 6. Endpoint Principal: Inferencia (/predict)
 @app.post("/predict", summary="Realiza predicciones múltiples de condiciones de salud mental")
-def predict(data: PatientData):
+def predict(data: PatientData, background_tasks: BackgroundTasks):
     """
     Recibe las características del paciente en JSON, ejecuta la inferencia sobre el modelo
-    MultiOutput de XGBoost empaquetado en ONNX, guarda la traza en S3 y retorna las predicciones binarias.
+    MultiOutput de XGBoost empaquetado en ONNX, guarda la traza en S3 de forma asíncrona y retorna las predicciones binarias.
     """
     # Verificación de seguridad de carga del modelo
     if session is None or not os.path.exists(LOCAL_MODEL_PATH):
@@ -147,4 +147,36 @@ def predict(data: PatientData):
         # Ejecutar inferencia en ONNX Runtime
         raw_preds = session.run(None, {input_name: input_array})
         
-        # EXPLICACIÓN E
+        # EXPLICACIÓN ESTRUCTURA MULTI-OUTPUT: 
+        # Debido a MultiOutputClassifier + zipmap=True, raw_preds[0] contiene la matriz de predicciones.
+        # Extraemos la primera fila de predicciones binarias de la primera salida: raw_preds[0][0]
+        predicted_labels = raw_preds[0][0]
+        
+        # Construir el diccionario de predicciones mapeando los índices con las condiciones
+        predictions = {}
+        for idx, condition in enumerate(CONDITIONS):
+            predictions[condition] = int(predicted_labels[idx])
+            
+        # EJECUCIÓN REQUERIMIENTO: Almacenar la predicción en el TXT de monitoreo dentro de S3 de fondo
+        background_tasks.add_task(log_prediction_to_s3, dict_data, predictions)
+        
+        # Retornar respuesta al cliente
+        return {
+            "environment": ENVIRONMENT,
+            "predictions": predictions
+        }
+        
+    except Exception as e:
+        print(f"[INFERENCE ERROR] Falló el procesamiento de la predicción: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error al procesar la inferencia: {str(e)}")
+
+
+# 7. Endpoint de Monitoreo de Salud (Health Check) - Requerido por AWS para el despliegue
+@app.get("/health", summary="Verifica el estado de salud de la API")
+def health():
+    """ Endpoint para que la infraestructura en la nube verifique si el contenedor responde. """
+    return {
+        "status": "healthy",
+        "environment": ENVIRONMENT,
+        "model_loaded": session is not None
+    }
