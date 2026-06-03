@@ -147,4 +147,35 @@ def predict(data: PatientData):
         # Ejecutar inferencia en ONNX Runtime
         raw_preds = session.run(None, {input_name: input_array})
         
-        # EXPLICACIÓN E
+        # EXPLICACIÓN E INTERPRETACIÓN DE LA SALIDA MULTI-OUTPUT:
+        # Los modelos MultiOutput de XGBoost convertidos a ONNX devuelven un arreglo binario o de probabilidades.
+        # Tomamos el primer elemento del lote [0] y lo pasamos a enteros (0 o 1).
+        final_predictions = [int(p) for p in raw_preds[0][0]]
+        
+        # Mapear los resultados (0 o 1) con los nombres de las condiciones médicas reales
+        output_mapping = {CONDITIONS[i]: final_predictions[i] for i in range(len(CONDITIONS))}
+        
+        # Registrar de forma asíncrona (en segundo plano simulado) el log en S3 para auditoría de MLOps
+        log_prediction_to_s3(dict_data, output_mapping)
+        
+        # Retornar el mapeo estructurado final al cliente
+        return {
+            "status": "success",
+            "environment": ENVIRONMENT,
+            "predictions": output_mapping
+        }
+        
+    except Exception as e:
+        print(f"[INFERENCE ERROR] Falló la predicción: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en la ejecución de la inferencia: {str(e)}")
+
+
+# 7. Endpoint complementario para el Health Check de AWS
+@app.get("/health", summary="Verifica el estado de salud de la API y el modelo")
+def health_check():
+    return {
+        "status": "healthy",
+        "environment": ENVIRONMENT,
+        "model_loaded": session is not None,
+        "timestamp": datetime.now().isoformat()
+    }
