@@ -2,6 +2,7 @@
 .env_xgboost/
 env/
 venv/
+.venv/
 taller_env/
 
 # Python caches
